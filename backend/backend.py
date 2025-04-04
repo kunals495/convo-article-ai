@@ -63,9 +63,21 @@ async def process_urls(url_input: URLInput):
         loader = UnstructuredURLLoader(urls=urls)
         data = loader.load()
 
+        # Ensure each document has the correct source metadata
+        for doc, url in zip(data, urls):
+            if not doc.metadata.get("source"):
+                doc.metadata["source"] = url
+            print(f"Document metadata: {doc.metadata}")  # Debug: Inspect metadata
+
         # Split documents into smaller chunks
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000)
         docs = text_splitter.split_documents(data)
+
+        # Ensure metadata is preserved after splitting
+        for doc in docs:
+            if not doc.metadata.get("source"):
+                doc.metadata["source"] = urls[0]  # Fallback to the first URL if metadata is missing
+            print(f"Chunk metadata: {doc.metadata}")  # Debug: Inspect metadata after splitting
 
         # Create FAISS index and save it
         vectorstore = FAISS.from_documents(docs, embeddings)
@@ -87,7 +99,11 @@ async def query_docs(query_input: QueryInput):
 
         # Use Gemini 2.0 Flash for faster responses
         llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
-        chain = RetrievalQAWithSourcesChain.from_llm(llm=llm, retriever=vectorstore.as_retriever())
+        chain = RetrievalQAWithSourcesChain.from_llm(
+            llm=llm,
+            retriever=vectorstore.as_retriever(),
+            return_source_documents=True  # Ensure source documents are returned
+        )
 
         def query_with_rate_limit(chain, query, delay=1):
             """Handles rate limits using exponential backoff."""
@@ -102,14 +118,24 @@ async def query_docs(query_input: QueryInput):
                     raise e
 
         result = query_with_rate_limit(chain, query_input.query)
-        
+
+        # Debug: Inspect the result and source documents
+        print(f"Query result: {result}")
+        if "source_documents" in result:
+            print(f"Source documents: {[doc.metadata for doc in result['source_documents']]}")
+
+        # Extract sources from the result
+        sources = result.get("sources", "").strip()
+        if not sources and "source_documents" in result:
+            # If sources are not provided, extract them from source_documents
+            sources = ", ".join(
+                set(doc.metadata.get("source", "Unknown source") for doc in result["source_documents"])
+            )
+
         return {
             "answer": result.get("answer", "No answer found."),
-            "sources": result.get("sources", "").strip()
+            "sources": sources if sources else "No sources provided"
         }
     
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing query: {str(e)}")
-
-# Run the backend using:
-# uvicorn backend:app --host 0.0.0.0 --port 8000 --reload

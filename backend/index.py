@@ -28,7 +28,7 @@ app = FastAPI()
 # 🔹 Enable CORS (Allow Frontend Requests)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Only allow React frontend
+    allow_origins=["http://localhost:5173", "https://your-frontend.vercel.app" ],  # Only allow React frontend,  # Only allow React frontend
     allow_credentials=True,
     allow_methods=["*"],  # Allows GET, POST, OPTIONS, etc.
     allow_headers=["*"],  # Allows all headers
